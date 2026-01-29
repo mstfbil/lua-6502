@@ -38,6 +38,19 @@ If you're using this on a Mac, you're probably going to have some difficulty wit
   export PKG_CONFIG_PATH="$NCURSES_PREFIX/lib/pkgconfig"
   luarocks install minicurses
 
+## How do I know it's working? I just see a backslash.
+
+Yep, that's an Apple 1 alright. Pop yourself into Integer Basic with "E000R":
+
+  \
+  E000R
+
+  E000: 4C
+  >10 PRINT "HELLO, WORLD"
+  >20 END
+  >RUN
+  HELLO, WORLD
+
 # Tests
 
 The tests are from the fantastic project

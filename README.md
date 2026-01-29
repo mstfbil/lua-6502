@@ -25,6 +25,19 @@ In updateScreen(), we look at the high bit of the DSP register; if it's set, the
 
 Of course, this brute-force approach isn't terribly efficient, and takes a number of shortcuts. It has no speed throttling, so it's slamming the CPU of your machine and runs substantially faster than the original Apple 1; it runs in a terminal, meaning it doesn't use the Apple font or blinking '@' cursor; it's emulating a 65C02 instead of a 6502, so there are opcodes that will actually do things that shouldn't. But it proves the point: in 192 lines of Lua, it's possible to write a fairly decent Apple 1 emulator.
 
+## But I want to use Lua 5.4!
+
+Okay okay, I've added `apple1-lua54.lua`. It uses the `minicurses` library with some `posix` and, as a result, it's somewhat longer just because I needed to write more glue for curses functionality. Still, 246 lines isn't terrible.
+
+If you're using this on a Mac, you're probably going to have some difficulty with `luarocks install minicurses`. Make sure you've got `ncurses` installed via homebrew, and then something like this:
+
+  NCURSES_PREFIX="$(brew --prefix ncurses)"
+  export CPPFLAGS="-I$NCURSES_PREFIX/include"
+  export CFLAGS="-I$NCURSES_PREFIX/include"
+  export LDFLAGS="-L$NCURSES_PREFIX/lib"
+  export PKG_CONFIG_PATH="$NCURSES_PREFIX/lib/pkgconfig"
+  luarocks install minicurses
+
 # Tests
 
 The tests are from the fantastic project

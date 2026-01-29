@@ -24,6 +24,7 @@ local _ENV = require("std.normalize") {
   "os",
   "debug",
   "string",
+  "table",
 }
 
 local MC    = require("minicurses")
@@ -40,6 +41,7 @@ local _c = const {
   KBD   = 0xd010,
 }
 
+local SCREEN_W, SCREEN_H = 40, 24
 local screenX, screenY = 0, 0
 local running = true
 
@@ -47,11 +49,11 @@ local mmu = {
   ram = {},
   immutable = {},
 
-  reset = function()
-    mmu.ram[_c.KBDCR] = 0
-    mmu.ram[_c.DSPCR] = 0
-    mmu.ram[_c.DSP]   = 0
-    mmu.ram[_c.KBD]   = 0x80
+  reset = function(self)
+    self.ram[_c.KBDCR] = 0
+    self.ram[_c.DSPCR] = 0x04
+    self.ram[_c.DSP]   = 0
+    self.ram[_c.KBD]   = 0x80
   end,
 }
 
@@ -66,10 +68,11 @@ local mmu_metatable = {
 
   __newindex = function(t, address, v)
     if address == _c.DSP then
-      if (t.ram[_c.DSPCR] & 0x04) == 0x04 then
-        t.ram[_c.DSP] = v
-        return
+      if ((t.ram[_c.DSPCR] or 0) & 0x04) == 0x04 then
+        t.ram[_c.DSP] = (v & 0x7F) | 0x80
+        t.ram[_c.DSPCR] = (t.ram[_c.DSPCR] or 0) & (~0x04)
       end
+      return
     end
 
     if address == _c.KBDCR then
@@ -117,11 +120,7 @@ do
 end
 
 cpu:init()
-mmu.ram[_c.KBDCR] = 0
-mmu.ram[_c.DSPCR] = 0
-mmu.ram[_c.DSP]   = 0
-mmu.ram[_c.KBD]   = 0x80
-
+mmu:reset()
 cpu:rst()
 
 local stdin_fd = posix.fileno(io.stdin)
@@ -136,86 +135,92 @@ local function restore_terminal()
   end)
 end
 
-local LINES, COLS = MC.initscr()
+MC.initscr()
 MC.cbreak()
 MC.noecho()
 MC.nonl()
 MC.clear()
 MC.refresh()
 
--- emulate stdscr:nodelay(true)
 posix.fcntl(stdin_fd, posix.F_SETFL, orig_flags | posix.O_NONBLOCK)
 
+local screen = {}
+for y = 1, SCREEN_H do
+  screen[y] = (" "):rep(SCREEN_W)
+end
+
+local function redraw_all()
+  MC.clear()
+  for y = 0, SCREEN_H - 1 do
+    MC.mvaddstr(y, 0, screen[y + 1])
+  end
+  MC.refresh()
+end
+
+local function scroll_up_1()
+  table.remove(screen, 1)
+  table.insert(screen, (" "):rep(SCREEN_W))
+  redraw_all()
+end
+
+local function newline()
+  screenX = 0
+  screenY = screenY + 1
+  if screenY >= SCREEN_H then
+    scroll_up_1()
+    screenY = SCREEN_H - 1
+  end
+end
+
+local function put_char(byte)
+  local line = screen[screenY + 1]
+  screen[screenY + 1] = line:sub(1, screenX) .. string.char(byte) .. line:sub(screenX + 2)
+  MC.move(screenY, screenX)
+  MC.addstr(string.char(byte))
+  screenX = screenX + 1
+  if screenX >= SCREEN_W then
+    newline()
+  end
+end
+
 local function read_byte_nonblocking()
-  local s, err = posix.read(stdin_fd, 1)
-  if not s then    -- EAGAIN / EWOULDBLOCK: no input available
-    return nil
-  end
-  if #s == 0 then
-    return nil
-  end
+  local s = posix.read(stdin_fd, 1)
+  if not s or #s == 0 then return nil end
   return s:byte(1)
 end
 
 local function checkForInput()
-  local ret = false
+  if mmu[_c.KBDCR] ~= 0x27 then return end
+  local c = read_byte_nonblocking()
+  if not c or c <= 0 or c >= 256 then return end
 
-  if mmu[_c.KBDCR] == 0x27 then -- can handle input
-    local c = read_byte_nonblocking()
-    if c and c > 0 and c < 256 then
-      c = c & 0x7F
-      if c >= 0x61 and c <= 0x7A then c = c & 0x5F end -- lower -> upper
-      if c < 0x60 then
-        mmu[_c.KBD] = c | 0x80 -- write kbd
-        mmu[_c.KBDCR] = 0xA7  -- write KbdCr
-        ret = true
-      end
-    end
-  end
+  c = c & 0x7F
+  if c >= 0x61 and c <= 0x7A then c = c & 0x5F end
+  if c >= 0x60 then return end
 
-  return ret
+  mmu[_c.KBD] = c | 0x80
+  mmu[_c.KBDCR] = 0xA7
 end
 
 local function updateScreen()
-  local dsp = mmu[_c.DSP]
+  local dsp = mmu.ram[_c.DSP]
+  if (dsp & 0x80) ~= 0x80 then return end
 
-  -- High bit indicates something waiting to display
-  if (dsp & 0x80) == 0x80 then
-    dsp = dsp & 0x7F
-    local tmp = dsp
+  dsp = dsp & 0x7F
+  local ch = dsp
+  if dsp >= 0x60 and dsp <= 0x7F then ch = dsp & 0x5F end
 
-    if dsp >= 0x60 and dsp <= 0x7F then
-      tmp = tmp & 0x5F
+  if ch == 0x0D or ch == 0x0A then
+    newline()
+  else
+    if ch >= 0x20 and ch <= 0x5F then
+      put_char(ch)
     end
-
-    if tmp == 0x0D then
-      -- return key
-      screenX = 0
-      screenY = screenY + 1
-    else
-      if tmp >= 0x20 and tmp <= 0x5F then
-         MC.move(screenY, screenX)
-         MC.addstr(string.char(tmp))
-         screenX = screenX + 1
-      end
-    end
-
-    if screenX == 40 then
-      screenX = 0
-      screenY = screenY + 1
-    end
-
-    if screenY == 24 then
-      MC.scrl(1)
-      screenY = 23
-    end
-
-    -- draw cursor
-    MC.move(screenY, screenX)
-
-    mmu[_c.DSP] = dsp -- write to dsp (clears hi bit)
   end
 
+  MC.move(screenY, screenX)
+  mmu.ram[_c.DSP] = dsp
+  mmu.ram[_c.DSPCR] = (mmu.ram[_c.DSPCR] or 0) | 0x04
   MC.refresh()
 end
 
@@ -228,10 +233,11 @@ local function err_handler(errmsg)
 end
 
 local function main()
-  while running do
-    -- local pc = cpu.pc -- left here if you want to inspect it later
-    -- local o  = cpu:readmem(cpu.pc)
+  redraw_all()
+  MC.move(screenY, screenX)
+  MC.refresh()
 
+  while running do
     cpu:step()
     checkForInput()
     updateScreen()
@@ -239,8 +245,5 @@ local function main()
 end
 
 local ok = xpcall(main, err_handler)
-if not ok then
-   os.exit(2)
-end
 restore_terminal()
 if not ok then os.exit(2) end

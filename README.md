@@ -27,7 +27,7 @@ Of course, this brute-force approach isn't terribly efficient, and takes a numbe
 
 ## But I want to use Lua 5.4!
 
-Okay okay, I've added `apple1-lua54.lua`. It uses the `minicurses` library with some `posix` and, as a result, it's somewhat longer just because I needed to write more glue for curses functionality. Still, 246 lines isn't terrible.
+Okay okay, I've added `apple1-lua54.lua`. It uses the `minicurses` library with some `posix` and, as a result, it's somewhat longer just because I needed to write more glue for curses functionality (and build a whole screen buffer). Still, 249 lines isn't terrible.
 
 If you're using this on a Mac, you're probably going to have some difficulty with `luarocks install minicurses`. Make sure you've got `ncurses` installed via homebrew, and then something like this:
 
@@ -50,6 +50,92 @@ Yep, that's an Apple 1 alright. Pop yourself into Integer Basic with "E000R":
   >20 END
   >RUN
   HELLO, WORLD
+
+Or if you want to go crazy, here's a maze generator in integer basic:
+
+  10 W=19
+  20 H=10
+  30 B=8192
+  40 N=W*H
+  50 M=(N+1)/2
+  60 FOR I=0 TO M-1
+  70 POKE B+I,0
+  80 NEXT I
+  90 X=RND(-1)
+  100 FOR Y=0 TO H-1
+  110 R=0
+  120 FOR X=0 TO W-1
+  130 IF X=W-1 THEN 200
+  140 IF Y=0 THEN 180
+  150 K=RND(2)
+  160 IF K=0 THEN 180
+  170 GOTO 200
+  180 I=Y*W+X
+  190 J=I+1
+  195 T=2:GOSUB 5300
+  196 I=J:T=8:GOSUB 5300
+  197 GOTO 230
+  200 Q=R+RND(X-R+1)
+  210 I=Y*W+Q
+  220 J=I-W
+  225 T=1:GOSUB 5300
+  226 I=J:T=4:GOSUB 5300
+  227 R=X+1
+  230 NEXT X
+  240 NEXT Y
+  300 FOR I=1 TO 39
+  310 PRINT "#";
+  320 NEXT I
+  330 PRINT
+  340 FOR Y=0 TO H-1
+  350 PRINT "#";
+  360 FOR X=0 TO W-1
+  370 I=Y*W+X
+  380 PRINT " ";
+  390 IF X=W-1 THEN 450
+  400 GOSUB 5000
+  410 Q=A/2
+  420 R=Q/2
+  430 IF Q-R*2=1 THEN 460
+  450 PRINT "#";
+  455 GOTO 470
+  460 PRINT " ";
+  470 NEXT X
+  480 PRINT
+  490 PRINT "#";
+  500 FOR X=0 TO W-1
+  510 I=Y*W+X
+  520 GOSUB 5000
+  530 Q=A/4
+  540 R=Q/2
+  550 IF Q-R*2=1 THEN 580
+  560 PRINT "#";
+  570 GOTO 590
+  580 PRINT " ";
+  590 PRINT "#";
+  600 NEXT X
+  610 PRINT
+  620 NEXT Y
+  630 END
+  4990 REM GET CELL NIBBLE INTO A
+  5000 P=I/2
+  5010 C=PEEK(B+P)
+  5020 IF I-P*2=0 THEN 5050
+  5030 A=C/16
+  5040 RETURN
+  5050 A=C-(C/16)*16
+  5060 RETURN
+  5290 REM SET WALL BIT T IN CELL I
+  5300 P=I/2
+  5310 U=B+P
+  5320 C=PEEK(U)
+  5330 L=C-(C/16)*16
+  5340 G=C/16
+  5350 IF I-P*2=0 THEN 5380
+  5360 POKE U,L+(G+T)*16
+  5370 RETURN
+  5380 POKE U,(L+T)+G*16
+  5390 RETURN
 
 # Tests
 

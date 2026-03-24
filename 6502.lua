@@ -1,3 +1,6 @@
+-- ported to LuaJIT by Mustafa Bildirici (@mstfbil)
+-- thanks for the amazing work, @JorjBauer ^^
+
 local _M = {}
 
 local bit = require("bit")
